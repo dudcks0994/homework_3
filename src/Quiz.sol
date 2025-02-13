@@ -13,14 +13,14 @@ contract Quiz{
    }
     
     mapping(address => uint256)[] public bets;
-    mapping(address => uint256) public contributors;
+    mapping(address => uint256) public to_give;
     address public owner;
     uint current_quiz_num;
     uint public vault_balance;
     Quiz_item[] public qs;
 
     receive() external payable {
-        contributors[msg.sender] = msg.value;
+        vault_balance += msg.value;
     }
 
     constructor () {
@@ -36,14 +36,18 @@ contract Quiz{
     }
 
     function addQuiz(Quiz_item memory q) public returns (uint){
-        require(contributors[msg.sender] > 0 || owner == msg.sender, "not same");
+        require(owner == msg.sender, "not same");
         require(q.id > current_quiz_num, "Invalid adding Quiz ID!");
         qs.push(q);
         ++current_quiz_num;
+        if (bets.length < current_quiz_num)
+            bets.push();
         return q.id;
     }
 
     function getAnswer(uint quizId) public view returns (string memory){
+        require(owner == msg.sender, "Unathorized!");
+        return qs[quizId - 1].answer;
     }
 
     function getQuiz(uint quizId) public view returns (Quiz_item memory) {
@@ -57,27 +61,47 @@ contract Quiz{
         return current_quiz_num;
     }
     
-    function betToPlay(uint quizId) public payable returns(uint){
+    function betToPlay(uint quizId) public payable{
         require(quizId <= current_quiz_num, "Invalid Quiz ID!");
-        uint len = bets.length;
-        uint256 rest_bet;
-        if (len < current_quiz_num)
-            rest_bet = 0;
-        else
-            rest_bet = bets[quizId - 1][msg.sender];
+        uint rest_bet = bets[quizId - 1][msg.sender];
         Quiz_item memory temp = qs[quizId - 1];
-        console.logUint(rest_bet + msg.value);
-        return rest_bet + msg.value;
-        // require(rest_bet + msg.value > temp.max_bet, "Decrease your bet!");
-        // require(rest_bet + msg.value > contributors[msg.sender], "Put more Deposit!");
-        // bets[quizId][msg.sender] += msg.value;
+        require(rest_bet + msg.value <= temp.max_bet, "Decrease your bet!");
+        require(msg.value >= temp.min_bet, "More betting!");
+        require((rest_bet + msg.value) * 2 <= vault_balance, "Lack of Deposit");
+        bets[quizId - 1][msg.sender] += msg.value;
     }
 
     function solveQuiz(uint quizId, string memory ans) public returns (bool) {
+        require(quizId <= current_quiz_num, "Invalid Quiz ID!");
+        require(bets[quizId - 1][msg.sender] > 0, "Plz bet!");
+        Quiz_item memory temp = qs[quizId - 1];
+        uint len_1 = bytes(ans).length;
+        uint len_2 = bytes(temp.answer).length;
+        if (len_1 != len_2)
+        {
+            vault_balance += bets[quizId - 1][msg.sender];
+            bets[quizId - 1][msg.sender] = 0;
+            return false;
+        }
+        for (uint i = 0; i < len_2; ++i)
+        {
+            if (len_1 != len_2 || bytes(ans)[i] != bytes(temp.answer)[i])
+            {
+                vault_balance += bets[quizId - 1][msg.sender];
+                bets[quizId - 1][msg.sender] = 0;
+                return false;
+            }
+        }
+        to_give[msg.sender] += (bets[quizId - 1][msg.sender] * 2);
+        return true;
     }
 
     function claim() public {
-        
+        if (to_give[msg.sender] > 0 && vault_balance >= to_give[msg.sender])
+        {
+            (msg.sender).call{value: to_give[msg.sender]}("");
+            to_give[msg.sender] = 0;
+        }
     }
 
 }
